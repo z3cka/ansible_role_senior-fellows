@@ -1,3 +1,90 @@
 ---
-- debug:
-    msg: "This test passed"
+- name: installing extra packages required by project build & CI process
+  yum:
+    name: "{{ item }}"
+    state: installed
+  with_items:
+    - git
+    - rh-php70-php-mbstring
+
+- name: Restart Webserver
+  command: echo "this task will restart the web services"
+  notify: "restart webserver"
+
+- name: Clone project repo
+  git:
+    repo: https://github.com/z3cka/ucla-senior-fellows.git
+    dest: /opt/rh/httpd24/root/var/www/ucla-senior-fellows
+    # version: release-0.22
+    force: yes
+
+# - name: Install Drush
+#   git:
+#     repo: https://github.com/drush-ops/drush.git
+#     dest: /usr/local/src/drush
+#   composer:
+#     command: install
+#     working_dir: /usr/local/src/drush
+#   file:
+#     src: /usr/local/src/drush/drush
+#     dest: /usr/bin/drush
+
+- name: Composer install for project
+  composer:
+    command: install
+    working_dir: /opt/rh/httpd24/root/var/www/ucla-senior-fellows
+    no_dev: false
+
+- name: link apache vhost to project
+  file:
+    src: /opt/rh/httpd24/root/var/www/ucla-senior-fellows/web
+    dest: /opt/rh/httpd24/root/var/www/html
+    state: link
+    force: yes
+
+- name: set permissions for config directory
+  file:
+    path: /opt/rh/httpd24/root/var/www/ucla-senior-fellows/config
+    owner: apache
+    recurse: yes
+
+## TODO: figure out a way to securly config a site
+# - name: Create a settings file
+#   copy:
+#     src: /opt/rh/httpd24/root/var/www/html/sites/default/default.settings.php
+#     dest: /opt/rh/httpd24/root/var/www/html/sites/default/settings.php
+#     owner: apache
+#     group: apache
+#     mode: 0744
+#     remote_src: true
+#     force: no
+
+- name: ensure there is a place for db's to live
+  file:
+    path: /opt/rh/httpd24/root/var/www/ucla-senior-fellows/config/db
+    state: directory
+    force: yes
+
+- name: Send backup
+  copy:
+    src: ucla-senior-fellows_20170906-1422.sql
+    dest: /opt/rh/httpd24/root/var/www/ucla-senior-fellows/config/db/ucla-senior-fellows_20170906-1422.sql
+    backup: yes
+    force: yes
+
+- name: link up drush for sudo usage
+  file:
+    src: /usr/local/bin/drush
+    dest: /usr/bin/drush
+    state: link
+    force: yes
+
+- name: Import DB
+  shell: drush sqlc < /opt/rh/httpd24/root/var/www/ucla-senior-fellows/config/db/ucla-senior-fellows_20170906-1422.sql
+  args:
+    chdir: /opt/rh/httpd24/root/var/www/ucla-senior-fellows/web
+
+- name: clone ucla_gateway theme
+  git:
+    repo: https://github.com/z3cka/ucla_gateway.git
+    dest: /opt/rh/httpd24/root/var/www/ucla-senior-fellows/web/themes/custom/ucla_gateway
